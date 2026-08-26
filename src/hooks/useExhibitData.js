@@ -5,15 +5,14 @@
 // property set, dedup via activeRequests), pointed at this app's own backend
 // API instead of Power BI. `period` is now { fiscalYear, fiscalPeriod }
 // instead of a single "0426"-style string — see PROJECT_BRIEF.md decision #7.
+// No auth token handling — see src/services/api.js.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useRef } from "react";
-import { useMsal } from "@azure/msal-react";
-import { getAccessToken, getExhibitRows } from "../services/api.js";
+import { getExhibitRows } from "../services/api.js";
 import { SECTIONS } from "../config.js";
 
 export function useExhibitData(period, propertyKeys) {
-  const { instance, accounts } = useMsal();
   const [exhibitCache, setExhibitCache] = useState({});
   const [loading, setLoading] = useState({});
   const [errors, setErrors] = useState({});
@@ -23,7 +22,7 @@ export function useExhibitData(period, propertyKeys) {
   const periodKey = period ? `${period.fiscalYear}-${period.fiscalPeriod}` : "";
 
   useEffect(() => {
-    if (!period || !codeKey || !accounts[0]) return;
+    if (!period || !codeKey) return;
 
     const exhibitSections = SECTIONS.filter((s) => s.hasExhibit);
 
@@ -35,9 +34,7 @@ export function useExhibitData(period, propertyKeys) {
       setLoading((p) => ({ ...p, [section.id]: true }));
 
       try {
-        const token = await getAccessToken(instance, accounts[0]);
-        if (!token) return; // redirecting for auth
-        const rows = await getExhibitRows(token, section.id, propertyKeys, period.fiscalYear, period.fiscalPeriod);
+        const rows = await getExhibitRows(section.id, propertyKeys, period.fiscalYear, period.fiscalPeriod);
         setExhibitCache((p) => ({ ...p, [key]: rows }));
       } catch (err) {
         console.error(`Exhibit load failed [${section.id}]:`, err);
@@ -47,7 +44,7 @@ export function useExhibitData(period, propertyKeys) {
         activeRequests.current.delete(key);
       }
     });
-  }, [periodKey, codeKey, accounts[0]?.username]);
+  }, [periodKey, codeKey]);
 
   return {
     getRows: (sectionId) => exhibitCache[`${sectionId}__${periodKey}__${codeKey}`] ?? null,

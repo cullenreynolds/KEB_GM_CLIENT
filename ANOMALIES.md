@@ -66,11 +66,21 @@ property level, not in aggregate across the whole table:**
   `QUERY_SERVICE_URL`/`KBC_TOKEN`/`KBC_URL`, no manual credential setup. This also simplified
   `commentary.js`'s write path from a file-upload/import job down to a direct SQL
   DELETE+INSERT, since Storage Access grants INSERT/UPDATE/DELETE on tables added to it.
-- **Auth mechanism**: in-app MSAL, not Keboola's OIDC access mode. Confirmed against Keboola
-  docs that OIDC has no mechanism to forward the authenticated user's identity into the app
-  (no header, env var, or session data) — it can only gate *who* opens the URL, not tell the
-  backend *which* GM is logged in, which is required for the `DATA_APP_ACCESS` row-level
-  filtering. Keboola access mode stays **Public**; identity comes entirely from in-app MSAL.
+- **Auth mechanism**: Keboola's own **OIDC access mode** (Entra ID), not in-app MSAL — reversed
+  from an earlier decision. Keboola's docs didn't confirm a mechanism for OIDC to forward the
+  authenticated user's identity into the app, but the user confirmed directly: Keboola's OIDC
+  proxy sets an **`X-Kbc-User-Email`** header on every request it forwards to the app container.
+  Since the container is only reachable through that authenticating proxy, the header can be
+  trusted without independent verification. This removed an entire subsystem: no separate
+  Entra app registration, no in-app MSAL (`authConfig.js` deleted, `@azure/msal-browser`/
+  `@azure/msal-react` dropped from `package.json`), no JWT verification in the backend (`jose`
+  dropped too) — `server/services/auth.js` just reads the header. **Still needs doing**: set
+  this data app's (`GM Client Report`, `01m0zqrcn3jhaa4dbrzb028xkv`) access mode to OIDC against
+  the KemperSports Entra tenant in the Keboola UI (currently whatever it defaulted to on
+  creation — likely Basic/password).
+- **No in-app "Sign out"** — removed along with MSAL. Keboola's OIDC gate owns the session; no
+  confirmed app-triggerable Keboola logout URL to wire up a button to. If a sign-out affordance
+  turns out to be wanted, it needs a Keboola-specific logout endpoint — not yet investigated.
 
 ## Matched-label lists, for review (per the user: "over-match and I'll review")
 

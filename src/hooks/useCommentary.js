@@ -3,30 +3,27 @@
 // Ported from old_gm-report-app's hook of the same name — same contract
 // (commentary/updateSection/save/loadStatus/saveStatus/completedCount),
 // pointed at this app's own backend API (in.c-APP_STORAGE) instead of the
-// SharePoint GM_Commentary list.
+// SharePoint GM_Commentary list. No auth token handling — see
+// src/services/api.js.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useState, useEffect, useCallback } from "react";
-import { useMsal } from "@azure/msal-react";
-import { getAccessToken, getCommentary, saveCommentary } from "../services/api.js";
+import { getCommentary, saveCommentary } from "../services/api.js";
 
 export function useCommentary(commentaryKey, periodId) {
-  const { instance, accounts } = useMsal();
   const [commentary, setCommentary] = useState({});
   const [loadStatus, setLoadStatus] = useState("idle");
   const [saveStatus, setSaveStatus] = useState("idle");
 
   useEffect(() => {
-    if (!commentaryKey || !periodId || !accounts[0]) return;
+    if (!commentaryKey || !periodId) return;
 
     setLoadStatus("loading");
     setCommentary({});
 
     (async () => {
       try {
-        const token = await getAccessToken(instance, accounts[0]);
-        if (!token) return; // redirecting for auth
-        const data = await getCommentary(token, commentaryKey, periodId);
+        const data = await getCommentary(commentaryKey, periodId);
         setCommentary({
           financialPerformance: data.financialPerformance ?? "",
           rounds: data.rounds ?? "",
@@ -44,7 +41,7 @@ export function useCommentary(commentaryKey, periodId) {
         setLoadStatus("error");
       }
     })();
-  }, [commentaryKey, periodId, accounts[0]?.username]);
+  }, [commentaryKey, periodId]);
 
   const updateSection = useCallback((sectionId, value) => {
     setSaveStatus("idle");
@@ -52,12 +49,10 @@ export function useCommentary(commentaryKey, periodId) {
   }, []);
 
   const save = useCallback(async () => {
-    if (!commentaryKey || !periodId || !accounts[0]) return;
+    if (!commentaryKey || !periodId) return;
     setSaveStatus("saving");
     try {
-      const token = await getAccessToken(instance, accounts[0]);
-      if (!token) return; // redirecting for auth
-      await saveCommentary(token, commentaryKey, periodId, commentary);
+      await saveCommentary(commentaryKey, periodId, commentary);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 3000);
     } catch (err) {
@@ -65,7 +60,7 @@ export function useCommentary(commentaryKey, periodId) {
       setSaveStatus("error");
       setTimeout(() => setSaveStatus("idle"), 4000);
     }
-  }, [commentaryKey, periodId, commentary, accounts[0]?.username]);
+  }, [commentaryKey, periodId, commentary]);
 
   const completedCount = Object.values(commentary).filter((v) => v?.trim()).length;
 

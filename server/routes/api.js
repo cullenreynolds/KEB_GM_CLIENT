@@ -1,7 +1,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // api.js — all backend routes, mounted under /api in server/index.js.
-// Every route runs behind requireAuth (see auth.js); req.user.email is trusted
-// only because auth.js already verified the Entra ID token's signature.
+// Every route runs behind requireAuth (see auth.js); req.user.email comes from
+// Keboola's OIDC gate (X-Kbc-User-Email), trusted because this container is
+// only reachable through that authenticating proxy.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Router } from "express";
@@ -21,6 +22,10 @@ function parsePropertyKeys(req) {
   if (!raw) return [];
   return String(raw).split(",").filter(Boolean);
 }
+
+router.get("/me", (req, res) => {
+  res.json({ email: req.user.email });
+});
 
 router.get("/properties", async (req, res, next) => {
   try {

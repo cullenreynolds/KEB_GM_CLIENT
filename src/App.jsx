@@ -1,25 +1,28 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // App.jsx
 // Ported from old_gm-report-app/src/App.jsx. Structural changes from the port:
+//   - Auth is Keboola's own OIDC gate (access mode = OIDC, Entra ID), not
+//     in-app MSAL — no login screen, no token acquisition. The backend trusts
+//     the X-Kbc-User-Email header Keboola's proxy sets (see server/services/
+//     auth.js); the frontend just fetches /api/me for display purposes.
 //   - Auth/access resolution collapses to one call (getProperties) against this
-//     app's own backend, which already applied DATA_APP_ACCESS RLS server-side
-//     — no more separate Power BI/SharePoint token dance or PBI-401-retry logic.
+//     app's own backend, which already applied DATA_APP_ACCESS RLS server-side.
 //   - Properties are keyed by PK_MASTER_PROPERTY (`id`), not a DatabaseCodes
 //     string join — much simpler, no parseDatabaseCodes/mergedDbCodes concept.
 //   - Property logo dropped for v1 (decision confirmed with the user).
 //   - Period is now { fiscalYear, fiscalPeriod, calendarYear, calendarMonth }
 //     instead of an "0426"-style string.
+//   - No in-app Sign out — see ANOMALIES.md; Keboola's OIDC gate owns the
+//     session, and there's no confirmed app-triggerable Keboola logout URL.
 // Everything else (layout, PDF export flow, multi-property selection, section
 // nav, progress bar, Save Draft state machine) is unchanged.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { flushSync } from "react-dom";
-import { useMsal, useIsAuthenticated } from "@azure/msal-react";
 
-import { loginRequest } from "./authConfig.js";
 import { SECTIONS, BRAND } from "./config.js";
-import { getAccessToken, getProperties, getPeriods } from "./services/api.js";
+import { getMe, getProperties, getPeriods } from "./services/api.js";
 import { captureElement, buildPDF } from "./services/pdfExport.js";
 import { useExhibitData } from "./hooks/useExhibitData.js";
 import { useCommentary } from "./hooks/useCommentary.js";
@@ -298,34 +301,11 @@ function PropertyDropdown({ properties, selectedIds, onChange }) {
   );
 }
 
-// ── Login screen ──────────────────────────────────────────────────────────────
-function LoginScreen() {
-  const { instance } = useMsal();
-  return (
-    <div style={{ height: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: GREEN }}>
-      <div style={{ textAlign: "center" }}>
-        <h1 style={{ fontFamily: BRAND.headingFont, fontSize: "24px", color: WHITE, fontWeight: 300, marginBottom: "8px" }}>
-          KemperSports GM Client Report
-        </h1>
-        <p style={{ color: "rgba(255,255,255,0.6)", fontSize: "14px", marginBottom: "32px" }}>
-          Sign in with your Microsoft account to continue
-        </p>
-        <button
-          onClick={async () => { try { await instance.loginRedirect(loginRequest); } catch (err) { console.error("Sign in error:", err); } }}
-          style={{ background: ORANGE, color: WHITE, border: "none",
-            borderRadius: "4px", padding: "12px 32px", fontSize: "14px",
-            cursor: "pointer", fontWeight: 700 }}>
-          Sign In
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── Main authenticated app ────────────────────────────────────────────────────
-function AuthenticatedApp() {
-  const { instance, accounts } = useMsal();
-  const account = accounts[0];
+// ── Main app ───────────────────────────────────────────────────────────────────
+// No login screen — by the time this renders, Keboola's OIDC gate has already
+// authenticated the user (access mode = OIDC on the data app itself).
+function GmReportApp() {
+  const [userEmail, setUserEmail] = useState(null);
 
   const [accessibleProperties, setAccessibleProperties] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
@@ -349,12 +329,10 @@ function AuthenticatedApp() {
 
   // Reload periods whenever the selected properties change
   useEffect(() => {
-    if (!selectedIds.length || !account) { setPeriods([]); setPeriod(null); return; }
+    if (!selectedIds.length) { setPeriods([]); setPeriod(null); return; }
     (async () => {
       try {
-        const token = await getAccessToken(instance, account);
-        if (!token) return;
-        const perList = await getPeriods(token, selectedIds);
+        const perList = await getPeriods(selectedIds);
         setPeriods(perList);
         setPeriod(perList.length ? perList[0] : null);
       } catch (err) {
@@ -367,14 +345,12 @@ function AuthenticatedApp() {
   const exhibit = useExhibitData(period, selectedIds);
   const { commentary, updateSection, save, saveStatus, completedCount } = useCommentary(commentaryKey, periodKey(period));
 
-  // On mount: resolve which properties this user can access
+  // On mount: who's signed in, and which properties can they access
   useEffect(() => {
-    if (!account) return;
     (async () => {
       try {
-        const token = await getAccessToken(instance, account);
-        if (!token) return;
-        const properties = await getProperties(token);
+        const [email, properties] = await Promise.all([getMe(), getProperties()]);
+        setUserEmail(email);
 
         if (!properties.length) {
           setProfileError("No properties found for your account. Contact your regional controller.");
@@ -388,7 +364,7 @@ function AuthenticatedApp() {
         setProfileError("Failed to load your property data. See console for details.");
       }
     })();
-  }, [account?.username]);
+  }, []);
 
   const handlePropertyChange = useCallback((ids) => {
     setSelectedIds(ids);
@@ -449,14 +425,10 @@ function AuthenticatedApp() {
         <div style={{ background: WHITE, border: `1px solid ${RULE}`, borderRadius: "6px",
           padding: "32px 40px", maxWidth: "420px", textAlign: "center" }}>
           <p style={{ color: "#c0392b", fontSize: "14px", marginBottom: "16px" }}>{profileError}</p>
-          <p style={{ color: "#8a9aaa", fontSize: "12px", marginBottom: "16px" }}>
-            Signed in as <strong style={{ color: CHARCOAL }}>{account?.username ?? account?.name ?? "unknown"}</strong>
-            <br />If this is not your KemperSports account, sign out and sign in with the correct email.
+          <p style={{ color: "#8a9aaa", fontSize: "12px" }}>
+            Signed in as <strong style={{ color: CHARCOAL }}>{userEmail ?? "unknown"}</strong>
+            <br />If this is not your KemperSports account, contact IT — sign-out is managed by Keboola's login gate.
           </p>
-          <button onClick={() => instance.logoutRedirect()} style={{ background: NAVY, color: WHITE, border: "none",
-            borderRadius: "3px", padding: "7px 20px", fontSize: "12px", cursor: "pointer", fontWeight: 600 }}>
-            Sign out
-          </button>
         </div>
       </div>
     );
@@ -480,7 +452,7 @@ function AuthenticatedApp() {
         <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ width: "8px", height: "28px", background: ORANGE, borderRadius: "1px", flexShrink: 0 }} />
-            <div style={{ fontSize: "11px", color: "#8aaa90" }}>{account?.name}</div>
+            <div style={{ fontSize: "11px", color: "#8aaa90" }}>{userEmail}</div>
           </div>
           <div style={{ width: 1, height: 28, background: "#243D2C" }} />
 
@@ -526,11 +498,6 @@ function AuthenticatedApp() {
             cursor: isPdfExporting ? "not-allowed" : "pointer",
             fontWeight: 700, opacity: isPdfExporting ? 0.7 : 1, minWidth: 96 }}>
             {isPdfExporting ? "Exporting…" : "Export PDF"}
-          </button>
-
-          <button onClick={() => instance.logoutRedirect()} style={{
-            background: "transparent", color: "#7a99cc", border: "none", fontSize: "11px", cursor: "pointer" }}>
-            Sign out
           </button>
         </div>
       </div>
@@ -635,6 +602,5 @@ function AuthenticatedApp() {
 
 // ── Root export ───────────────────────────────────────────────────────────────
 export default function App() {
-  const isAuthenticated = useIsAuthenticated();
-  return isAuthenticated ? <AuthenticatedApp /> : <LoginScreen />;
+  return <GmReportApp />;
 }
