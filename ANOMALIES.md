@@ -19,14 +19,17 @@ property level, not in aggregate across the whole table:**
 
 ## Open
 
-- **Storage Access must be enabled for this data app before it can query anything.**
-  `server/services/db.js` uses Keboola's Query Service (`@keboola/query-service`), which needs:
-  1. Storage Access turned on at the project level (Project Settings > Features).
-  2. This app's (`GM Client Report`, config `01m0zqrcn3jhaa4dbrzb028xkv`) Advanced Settings >
-     Storage Access has these tables added: `out.c-BDM.BI_PROPERTY_FINANCIALS_BVA`,
-     `out.c-BDM.DIM_MASTER_PROPERTY`, `out.c-Data-App-Access-Security.DATA_APP_ACCESS` (read),
-     and `in.c-APP_STORAGE.GM_COMMENTARY` (read+write, for commentary saves).
-  Not yet done as of this build session — needs doing in the Keboola UI before first deploy.
+- **Entrypoint/branch cannot be set on the data app config via MCP.** Both
+  `modify_python_js_data_app(branch="main")` and the `data-app-entrypoints` sync action fail
+  with "could not determine whether it is an external-git app (the git-repo lookup failed...)".
+  The config's `parameters.dataApp.git` block has a `"private": true` field that isn't a
+  recognized option (valid ones per the sync action's own error: `#password`, `#sshKey`,
+  `branch`, `entrypoint`, `repository`, `username`) — this is likely what's breaking the
+  git-repo lookup, but removing it isn't reachable through the exposed MCP tools (they only
+  let you set `branch`, which itself needs the lookup to succeed first — circular). **Needs
+  fixing directly in the Keboola UI**: open the "GM Client Report" data app's git settings,
+  confirm/re-save the repository connection (which should clear the stray `private` field),
+  and set the entrypoint to `server/index.js`.
 
 - **Rows whose `SIS_ROW_CODE` does NOT exceed their property's EBITDA boundary** — the one
   case the per-property rule above doesn't explicitly cover (every real example checked so far
@@ -74,10 +77,20 @@ property level, not in aggregate across the whole table:**
   trusted without independent verification. This removed an entire subsystem: no separate
   Entra app registration, no in-app MSAL (`authConfig.js` deleted, `@azure/msal-browser`/
   `@azure/msal-react` dropped from `package.json`), no JWT verification in the backend (`jose`
-  dropped too) — `server/services/auth.js` just reads the header. **Still needs doing**: set
-  this data app's (`GM Client Report`, `01m0zqrcn3jhaa4dbrzb028xkv`) access mode to OIDC against
-  the KemperSports Entra tenant in the Keboola UI (currently whatever it defaulted to on
-  creation — likely Basic/password).
+  dropped too) — `server/services/auth.js` just reads the header. **Done**: the user configured
+  the OIDC provider directly on the data app (`GM Client Report`, `01m0zqrcn3jhaa4dbrzb028xkv`)
+  — confirmed via `get_data_apps`: `auth_providers` has an `oidc-1` entry against the correct
+  Entra tenant issuer, with `auth_rules` requiring auth on every path. It also exposed a
+  `logout_url` (`https://login.microsoftonline.com/.../oauth2/logout`) — worth revisiting for
+  the "No in-app Sign out" item below; this may not be a dead end after all.
+- **Storage Access / commentary table**: `storage.output.tables` added to the data app config
+  (4 tables, `unload_strategy: "direct-grant"`) via `modify_python_js_data_app` —
+  `out.c-BDM.BI_PROPERTY_FINANCIALS_BVA`, `out.c-BDM.DIM_MASTER_PROPERTY`,
+  `out.c-Data-App-Access-Security.DATA_APP_ACCESS`, `in.c-APP_STORAGE.APP_GM_CLIENT_REPORT_COMMENTARY`.
+  The commentary table itself was created via a one-off SQL transformation ("Create GM Client
+  Report Commentary Table", config `01m0zs8jqcwds2ca0d5m358ryq`) — confirmed created and
+  populated with the schema `commentary.js` expects (`PropertyCode`, `PeriodID`, 9 commentary
+  columns, `UpdatedBy`, `UpdatedAt`), primary key `(PropertyCode, PeriodID)`.
 - **No in-app "Sign out"** — removed along with MSAL. Keboola's OIDC gate owns the session; no
   confirmed app-triggerable Keboola logout URL to wire up a button to. If a sign-out affordance
   turns out to be wanted, it needs a Keboola-specific logout endpoint — not yet investigated.

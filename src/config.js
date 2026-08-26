@@ -12,7 +12,7 @@ export const KEBOOLA = {
   masterPropertyTable: '"SAPI_10540"."out.c-BDM"."DIM_MASTER_PROPERTY"',
   accessTable: '"SAPI_10540"."out.c-Data-App-Access-Security"."DATA_APP_ACCESS"',
   commentaryBucket: "in.c-APP_STORAGE",
-  commentaryTable: "GM_COMMENTARY",
+  commentaryTable: "APP_GM_CLIENT_REPORT_COMMENTARY",
 };
 
 // Section definitions ─────────────────────────────────────────────────────────

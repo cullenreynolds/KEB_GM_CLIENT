@@ -10,7 +10,7 @@
 //   2. This app's Advanced Settings > Storage Access has the required tables
 //      added — out.c-BDM.BI_PROPERTY_FINANCIALS_BVA, out.c-BDM.DIM_MASTER_PROPERTY,
 //      out.c-Data-App-Access-Security.DATA_APP_ACCESS (read), and
-//      in.c-APP_STORAGE.GM_COMMENTARY (read+write, for commentary.js).
+//      in.c-APP_STORAGE.APP_GM_CLIENT_REPORT_COMMENTARY (read+write, for commentary.js).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { QueryServiceClient } from "@keboola/query-service";

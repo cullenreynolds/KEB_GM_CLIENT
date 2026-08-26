@@ -1,6 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // commentary.js
-// Reads/writes GM commentary to in.c-APP_STORAGE.GM_COMMENTARY (replaces the
+// Reads/writes GM commentary to in.c-APP_STORAGE.APP_GM_CLIENT_REPORT_COMMENTARY (replaces the
 // old app's SharePoint GM_Commentary list). Both reads and writes go through
 // the same Query Service path as everything else (see db.js) — Storage Access
 // grants the workspace user INSERT/UPDATE/DELETE on tables added to this app's
